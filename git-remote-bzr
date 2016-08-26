@@ -867,7 +867,21 @@ def find_branches(repo):
 
 def get_repo(url, alias):
     normal_url = bzrlib.urlutils.normalize_url(url)
-    origin = bzrlib.bzrdir.BzrDir.open(url, possible_transports=transports)
+    try:
+        origin = bzrlib.bzrdir.BzrDir.open(url, possible_transports=transports)
+    except bzrlib.errors.InvalidURL:
+        # URL came in a form like lp:~glolol/variety, which is too short by itself
+        # to be a branch name. What we want is something like
+        # lp:~glolol/variety/my-branch-name, so we'll add the current git branch
+        # name to that.
+        old_url = url
+        url = '%s/%s' % (url, git_branch)
+        warn("Normalizing Bzr URL %s to %s. Fetching/pushing branches that "
+             "aren't the current branch is not supported; to lock a fetch or "
+             "push to a specific branch, set %s/YOUR-BRANCH-NAME as the Git "
+             "remote instead." % (old_url, url, old_url))
+        origin = bzrlib.bzrdir.BzrDir.open(url, possible_transports=transports)
+
     is_local = isinstance(origin.transport, bzrlib.transport.local.LocalTransport)
 
     shared_path = os.path.join(gitdir, 'bzr')
@@ -950,6 +964,7 @@ def main(args):
     global transports
     global force
     global master_branch
+    global git_branch
 
     marks = None
     is_tmp = False
@@ -974,6 +989,12 @@ def main(args):
     peers = {}
     transports = []
     force = False
+
+    # Get the git branch requested.
+    cmd = ['git', 'rev-parse', '--abbrev-ref', 'HEAD']
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    git_branch, _ = process.communicate()
+    git_branch = git_branch.strip()
 
     if alias[5:] == url:
         is_tmp = True
